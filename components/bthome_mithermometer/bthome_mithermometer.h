@@ -1,8 +1,9 @@
 #pragma once
 
 #include "esphome/core/component.h"
-#include "esphome/components/sensor/sensor.h"
 #include "esphome/components/esp32_ble_tracker/esp32_ble_tracker.h"
+#include "esphome/components/binary_sensor/binary_sensor.h"
+#include "esphome/components/sensor/sensor.h"
 
 #include <vector>
 
@@ -16,6 +17,7 @@ struct ParseResult {
   optional<float> humidity;
   optional<float> battery_level;
   optional<float> battery_voltage;
+  optional<bool> power;
   bool has_encryption;
   int raw_offset;
 };
@@ -47,6 +49,7 @@ class BTHomeMiThermometer : public Component, public esp32_ble_tracker::ESPBTDev
   void set_battery_level(sensor::Sensor *battery_level) { battery_level_ = battery_level; }
   void set_battery_voltage(sensor::Sensor *battery_voltage) { battery_voltage_ = battery_voltage; }
   void set_signal_strength(sensor::Sensor *signal_strength) { signal_strength_ = signal_strength; }
+  void set_power(binary_sensor::BinarySensor *power) { power_ = power; }
 
  protected:
   uint64_t address_;
@@ -56,6 +59,7 @@ class BTHomeMiThermometer : public Component, public esp32_ble_tracker::ESPBTDev
   sensor::Sensor *battery_level_{nullptr};
   sensor::Sensor *battery_voltage_{nullptr};
   sensor::Sensor *signal_strength_{nullptr};
+  binary_sensor::BinarySensor *power_{nullptr};
 
   optional<ParseResult> parse_header_(const esp32_ble_tracker::ServiceData &service_data);
   bool parse_message_(const std::vector<uint8_t> &message, ParseResult &result);

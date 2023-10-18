@@ -18,6 +18,7 @@ void BTHomeMiThermometer::dump_config() {
   LOG_SENSOR("  ", "Humidity", this->humidity_);
   LOG_SENSOR("  ", "Battery Level", this->battery_level_);
   LOG_SENSOR("  ", "Battery Voltage", this->battery_voltage_);
+  LOG_BINARY_SENSOR("  ", "Power", this->power_);
 }
 
 bool BTHomeMiThermometer::parse_device(const esp32_ble_tracker::ESPBTDevice &device) {
@@ -54,6 +55,8 @@ bool BTHomeMiThermometer::parse_device(const esp32_ble_tracker::ESPBTDevice &dev
       this->battery_voltage_->publish_state(*res->battery_voltage);
     if (this->signal_strength_ != nullptr)
       this->signal_strength_->publish_state(device.get_rssi());
+    if (res->power.has_value() && this->power_ != nullptr)
+      this->power_->publish_state(*res->power);
     success = true;
   }
 
@@ -134,6 +137,9 @@ bool BTHomeMiThermometer::parse_message_(const std::vector<uint8_t> &message, Pa
 
     return true;
   }else if(data_length == 7 + result.raw_offset) {
+    // uint8_t     power;  // on/off          [2]
+    result.power = uint8_t(data[2+result.raw_offset]);
+
     // uint16_t    battery_mv;     // mV                [5,6]
     const int16_t battery_voltage = uint16_t(data[5+result.raw_offset]) | (uint16_t(data[6+result.raw_offset]) << 8);
     result.battery_voltage = battery_voltage / 1.0e3f;
@@ -164,6 +170,9 @@ bool BTHomeMiThermometer::report_results_(const optional<ParseResult> &result, c
   }
   if (result->battery_voltage.has_value()) {
     ESP_LOGD(TAG, "  Battery Voltage: %.3f V", *result->battery_voltage);
+  }
+  if (result->power.has_value()) {
+    ESP_LOGD(TAG, "  Power: %s", (*result->power) ? "on" : "off");
   }
 
   return true;
