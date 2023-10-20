@@ -65,19 +65,19 @@ bool BTHomeMiThermometer::parse_device(const esp32_ble_tracker::ESPBTDevice &dev
 
 optional<ParseResult> BTHomeMiThermometer::parse_header_(const esp32_ble_tracker::ServiceData &service_data) {
   ParseResult result;
-  if (!(service_data.uuid.contains(0x1C, 0x18) || service_data.uuid.contains(0x1E, 0x18))) {
+  if (!(service_data.uuid.contains(0xD2, 0xFC))) {
     ESP_LOGVV(TAG, "parse_header(): no service data UUID magic bytes.");
     return {};
   }
 
-  (service_data.uuid.contains(0x1E, 0x18)) ? result.has_encryption = true : result.has_encryption = false;
-
   auto raw = service_data.data;
+
+  result.has_encryption = bool(raw[0] & 1); // bit 0
 
   static uint8_t packet_id_offset;
   if(result.has_encryption) {
     packet_id_offset = raw.size() - 8;
-    result.raw_offset = 0;
+    result.raw_offset = 1;
   }else{
     if(raw[1] == 0x00) {
       packet_id_offset = 2;
@@ -123,26 +123,26 @@ bool BTHomeMiThermometer::parse_message_(const std::vector<uint8_t> &message, Pa
   int data_length;
   (result.has_encryption) ? data_length = message.size() - 8 : data_length = message.size();
 
-  if(data_length == 11 + result.raw_offset) {
-    // int16_t     temperature;    // x 0.01 degree     [2,3]
-    const int16_t temperature = int16_t(data[2+result.raw_offset]) | (int16_t(data[3+result.raw_offset]) << 8);
+  if(data_length == 8 + result.raw_offset) {
+    // uint8_t     battery_level;  // 0..100 %          [1]
+    result.battery_level = uint8_t(data[1+result.raw_offset]);
+
+    // int16_t     temperature;    // x 0.01 degree     [3,4]
+    const int16_t temperature = int16_t(data[3+result.raw_offset]) | (int16_t(data[4+result.raw_offset]) << 8);
     result.temperature = temperature / 1.0e2f;
 
     // uint16_t    humidity;       // x 0.01 %          [6,7]
     const int16_t humidity = uint16_t(data[6+result.raw_offset]) | (uint16_t(data[7+result.raw_offset]) << 8);
     result.humidity = humidity / 1.0e2f;
 
-    // uint8_t     battery_level;  // 0..100 %          [10]
-    result.battery_level = uint8_t(data[10+result.raw_offset]);
-
     return true;
-  }else if(data_length == 7 + result.raw_offset) {
-    // uint8_t     power;  // on/off          [2]
-    result.power = uint8_t(data[2+result.raw_offset]);
-
-    // uint16_t    battery_mv;     // mV                [5,6]
-    const int16_t battery_voltage = uint16_t(data[5+result.raw_offset]) | (uint16_t(data[6+result.raw_offset]) << 8);
+  }else if(data_length == 5 + result.raw_offset) {
+    // uint16_t    battery_mv;     // mV                [1,2]
+    const int16_t battery_voltage = uint16_t(data[1+result.raw_offset]) | (uint16_t(data[2+result.raw_offset]) << 8);
     result.battery_voltage = battery_voltage / 1.0e3f;
+
+    // uint8_t     power;  // on/off          [4]
+    result.power = uint8_t(data[4+result.raw_offset]);
 
     return true;
   }else{
@@ -191,7 +191,7 @@ void BTHomeMiThermometer::set_bindkey(const std::string &bindkey) {
 }
 
 bool BTHomeMiThermometer::decrypt_bthome_payload(std::vector<uint8_t> &raw, const uint8_t *bindkey, const uint64_t &address) {
-  if (!((raw.size() == 15) || ((raw.size() == 19)))) {
+  if (!((raw.size() == 14) || ((raw.size() == 17)))) {
     ESP_LOGVV(TAG, "decrypt_bthome_payload(): data packet has wrong size (%d)!", raw.size());
     ESP_LOGVV(TAG, "  Packet : %s", format_hex_pretty(raw.data(), raw.size()).c_str());
     return false;
@@ -208,17 +208,17 @@ bool BTHomeMiThermometer::decrypt_bthome_payload(std::vector<uint8_t> &raw, cons
   BTHomeAESVector vector{.key = {0},
                          .plaintext = {0},
                          .ciphertext = {0},
-                         .authdata = {0x11},
+                         .authdata = {0},
                          .iv = {0},
                          .tag = {0},
                          .keysize = 16,
-                         .authsize = 1,
+                         .authsize = 0,
                          .datasize = 0,
                          .tagsize = 4,
-                         .ivsize = 12};
+                         .ivsize = 13};
 
-  vector.datasize = raw.size() - 8;
-  int cipher_pos = 0;
+  vector.datasize = raw.size() - 9;
+  int cipher_pos = 1;
 
   const uint8_t *v = raw.data();
 
@@ -226,9 +226,10 @@ bool BTHomeMiThermometer::decrypt_bthome_payload(std::vector<uint8_t> &raw, cons
   memcpy(vector.ciphertext, v + cipher_pos, vector.datasize);
   memcpy(vector.tag, v + raw.size() - vector.tagsize, vector.tagsize);
   memcpy(vector.iv, mac_address, 6);             // MAC address reverse
-  vector.iv[6] = 0x1E;
-  vector.iv[7] = 0x18;
-  memcpy(vector.iv + 8, v + raw.size() - 8, 4);  // count_id
+  vector.iv[6] = 0xD2;
+  vector.iv[7] = 0xFC;
+  vector.iv[8] = raw[0];
+  memcpy(vector.iv + 9, v + raw.size() - 8, 4);  // count_id
 
   mbedtls_ccm_context ctx;
   mbedtls_ccm_init(&ctx);
