@@ -1,7 +1,12 @@
 ```
 external_components:
-  - source: github://chbgdn/bthome_mithermometer@main
+  - source: github://chbgdn/bthome_mithermometer@v1
     refresh: 0s
+
+esp32_ble_tracker:
+  scan_parameters:
+    continuous: true
+    active: false
 
 bthome_mithermometer:
   - id: some_unique_id
